@@ -1,0 +1,187 @@
+1.基于centos7,最小化安装.安装后升级。
+    yum update -y
+    
+    安装开发包组件
+    yum groupinstall "Development Tools" -y
+
+    安装 wget 
+    yum install -y wget
+    
+    创建虚拟主机管理系统目录
+    mkdir /greenhost/
+    
+    关于使用yum“The program package-cleanup is...”的解决办法
+    在使用yum 时总是有提示信息：
+    The program package-cleanup is found in the yum-utils package.
+    或者提示：
+    There are unfinished transactions remaining. You might consider running yum-complete-transaction first to finish them.
+    The program yum-complete-transaction is found in the yum-utils package.
+    处理步骤：
+    # 安装 yum-complete-transaction
+    yum install yum-utils
+    # 运行 yum-complete-transaction
+    yum-complete-transaction --cleanup-only
+    # 清除可能存在的重复包
+    package-cleanup --dupes
+    # 清除可能存在的损坏包
+    package-cleanup --problems
+
+2.安装python3.7.2(编译安装)到/greehost/
+    python3.7.2依赖
+    yum install -y zlib-devel bzip2-devel openssl-devel ncurses-devel sqlite-devel readline-devel tk-devel libffi-devel gcc make
+    下载 python3.7.2
+    wget https://www.python.org/ftp/python/3.7.2/Python-3.7.2.tgz 
+
+    安装Python
+    通过解压，配置编译，编译安装等步骤完成
+    解压
+    下载好了之后在文件所在目录解压
+    tar -xvf Python-3.7.2.tgz
+    配置编译
+    进入到解压的python的目录里面，使用`Python3.7.0/configure`文件进行配置
+    cd Python-3.7.2
+    配置编译的的路径
+    ./configure --prefix=/greenhost/python3  --enable-optimizations
+    make && make install
+
+    添加软连接
+    添加软链或者添加到环境变量，直接输入python3就可以使用了，下边是添加软连接：
+    ln -s /greenhost/python3/bin/python3 /usr/bin/python3.7.2
+    ln -s /greenhost/python3/bin/python3 /usr/bin/python3.7
+    ln -s /greenhost/python3/bin/python3 /usr/bin/python3
+
+    To install pip, securely download get-pip.py
+    curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+    Then run the following:
+    python get-pip.py
+    添加环境变量，并生效
+    echo "export PATH=/greenhost/python3/bin:\$PATH">>/etc/profile
+    source /etc/profile
+
+    
+    #目前不使用虚拟环境
+    #pip install virtualenv
+
+
+
+
+3.安装mariadb
+    
+    yum install mariadb mariadb-server mariadb-devel pam-devel -y
+
+    ###已经在安装后重写，请执行新方法#############mysql_secure_installation #后期需要改写，引入password参数，并且实现自动化。
+
+    下载pam_mysql
+     wget https://jaist.dl.sourceforge.net/project/pam-mysql/pam-mysql/0.7RC1/pam_mysql-0.7RC1.tar.gz
+
+     进入源码目录，进行编译安装。其中–with-mysql引用了mariadb的头文件以及lib，–with-pam引用了pam的头文件以及lib。–with-pam-mods-dir指明将模块安装的位置。
+
+    $ ./configure --with-mysql=/usr --with-pam=/usr --with-pam-mods-dir=/usr/lib64/security
+
+    $ make
+
+    $ make install
+    安装完毕之后，在/usr/lib64/security目录下面，可以查看到新的pam_mysql.so模块。
+    
+    ##########以下用于替代mysql_secure_installation##############
+    #删除test数据库
+    mysql -u root  -e 'drop database test;'
+    #删除root远程访问权限
+    mysql -u root -e 'delete from mysql.user where User="root" and Host="%";'
+    #刷新mysql权限
+    mysql -u root -e 'FLUSH PRIVILEGES;'
+    #设置数据库密码
+    mysqladmin -u root password "Doskey12,."
+    
+
+    ##$ ls /usr/lib64/security/ | grep mysql.so
+    ##pam_mysql.so
+
+
+3.vsftpd 基于 mysql 
+    # vim /etc/pam.d/vsftpd.mysql，添加如下两行代码：
+    #auth required /lib64/security/pam_mysql.so user=root passwd=Doskey12,. host=localhost db=greenhost table=sitemanage_member usercolumn=username passwdcolumn=ftppassword crypt=0
+    #account required /lib64/security/pam_mysql.so user=root passwd=Doskey12,. host=localhost db=greenhost table=sitemanage_member usercolumn=username passwdcolumn=ftppassword crypt=0"
+    #以下实现添加代码
+    echo -e "auth required /lib64/security/pam_mysql.so user=root passwd=Doskey12,. host=localhost db=greenhost table=sitemanage_member usercolumn=username passwdcolumn=ftppassword crypt=0\naccount required /lib64/security/pam_mysql.so user=root passwd=Doskey12,. host=localhost db=greenhost table=sitemanage_member usercolumn=username passwdcolumn=ftppassword crypt=0" >> 
+
+    备注：
+
+    数字    代表的含义    
+    0       不加密，明文
+    1       使用crypt函数加密
+    2       使用mysql password()函数加密
+    3       使用md5加密
+    4       使用sha1加密
+
+    #创建vsftpd虚拟用户目录
+    mkdir /etc/vsftpd/vusers
+
+    创建虚拟用户映射的系统用户：
+
+    # useradd -s /sbin/nologin -d /home/vhost vuser    //新的家目录ftpdocs必须事先不存在，该命令会自动创建
+
+    # chmod go+rx /home/vhost
+    #chmod a-w -R /home/vhost    #FTP $
+    #chmod 744 admin/ -R    #FTP没有权限上传，创建目录
+    #
+    #####################point##############################
+    #修改主配置文件/etc/vsftpd/vsftpd.conf，确认启用如下选项：
+
+      chroot_local_user=YES
+
+      pam_service_name=vsftpd.mysql
+
+      guest_enable=YES
+
+      guest_username=vuser
+
+      user_config_dir=/etc/vsftpd/vusers
+
+      use_localtime=YES
+    ##修改文件，变成替换配置好的文件，省事些
+
+3.构建虚拟环境
+
+
+    #cd /greenhost
+    ######virtualenv env
+    ######/greenhost/env/bin/pip3 install django
+    ######/greenhost/env/bin/django-admin startproject manage
+    #创建/greenhost
+    #mkdir /greenhost
+    #在/greenhost目录解压缩管理网站代码
+    tar zvfx ./greenhost.tar.gz -C  /
+    #安装依赖
+    pip install /greenhost/requirements.txt
+
+
+    #需要自定义后台，admin目前不能满足需求
+
+4.uwsgi 安装 配置
+ pip install uwsgi 
+ mkdir /etc/uwsgi/
+ uwsgi --emperor /etc/uwsgi/&
+ echo "uwsgi --emperor /etc/uwsgi/&" >> /etc/rc.local
+
+
+
+ 5.ngnix 安装 配置
+ yum 源
+ [nginx]
+    name=nginx repo
+    baseurl=http://nginx.org/packages/mainline/centos/7/x86_64/
+    gpgcheck=0
+    enabled=1
+
+安装ngnix
+    install nginx
+开机启动
+    systemctl enable nginx.service
+启动nginx
+    systemctl start nginx.service
+
+    
+
+
+
